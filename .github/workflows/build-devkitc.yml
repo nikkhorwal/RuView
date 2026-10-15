@@ -1,0 +1,45 @@
+
+name: Build RuView ESP32-S3 DevKitC-1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build headless ESP32-S3 firmware
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/firmware/esp32-csi-node:/project" \
+            -w /project \
+            espressif/idf:v5.4 \
+            bash -lc "rm -rf build sdkconfig &&
+            idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.devkitc' set-target esp32s3 &&
+            idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.devkitc' build"
+
+      - name: Verify build outputs
+        run: |
+          test -s firmware/esp32-csi-node/build/esp32-csi-node.bin
+          test -s firmware/esp32-csi-node/build/bootloader/bootloader.bin
+          test -s firmware/esp32-csi-node/build/partition_table/partition-table.bin
+          test -s firmware/esp32-csi-node/build/ota_data_initial.bin
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruview-esp32s3-devkitc
+          path: |
+            firmware/esp32-csi-node/build/esp32-csi-node.bin
+            firmware/esp32-csi-node/build/bootloader/bootloader.bin
+            firmware/esp32-csi-node/build/partition_table/partition-table.bin
+            firmware/esp32-csi-node/build/ota_data_initial.bin
+            firmware/esp32-csi-node/sdkconfig
+          if-no-files-found: error
+          retention-days: 7
