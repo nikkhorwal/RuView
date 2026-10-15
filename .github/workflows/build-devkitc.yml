@@ -1,45 +1,76 @@
-
 name: Build RuView ESP32-S3 DevKitC-1
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
 permissions:
-  contents: read
+contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+build:
+runs-on: ubuntu-latest
+env:
+CSI_WIFI_PASSWORD: ${{ secrets.CSI_WIFI_PASSWORD }}
 
-      - name: Build headless ESP32-S3 firmware
-        run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE/firmware/esp32-csi-node:/project" \
-            -w /project \
-            espressif/idf:v5.4 \
-            bash -lc "rm -rf build sdkconfig &&
-            idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.devkitc' set-target esp32s3 &&
-            idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.devkitc' build"
+steps:
+  - name: Checkout source
+    uses: actions/checkout@v4
 
-      - name: Verify build outputs
-        run: |
-          test -s firmware/esp32-csi-node/build/esp32-csi-node.bin
-          test -s firmware/esp32-csi-node/build/bootloader/bootloader.bin
-          test -s firmware/esp32-csi-node/build/partition_table/partition-table.bin
-          test -s firmware/esp32-csi-node/build/ota_data_initial.bin
+  - name: Prepare Wi-Fi configuration
+    working-directory: firmware/esp32-csi-node
+    shell: bash
+    run: |
+      if [ -z "$CSI_WIFI_PASSWORD" ]; then
+        echo "Missing GitHub Actions secret: CSI_WIFI_PASSWORD"
+        exit 1
+      fi
 
-      - name: Upload firmware artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ruview-esp32s3-devkitc
-          path: |
-            firmware/esp32-csi-node/build/esp32-csi-node.bin
-            firmware/esp32-csi-node/build/bootloader/bootloader.bin
-            firmware/esp32-csi-node/build/partition_table/partition-table.bin
-            firmware/esp32-csi-node/build/ota_data_initial.bin
-            firmware/esp32-csi-node/sdkconfig
-          if-no-files-found: error
-          retention-days: 7
+      python3 - <<'PY'
+      import os
+      from pathlib import Path
+
+      password = os.environ["CSI_WIFI_PASSWORD"]
+      if "\n" in password or "\r" in password:
+          raise SystemExit("Wi-Fi password must be a single line")
+
+      def kconfig_string(value):
+          return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+      Path("sdkconfig.defaults.wifi").write_text(
+          "CONFIG_CSI_WIFI_SSID="
+          + kconfig_string("Airtel_mayu_9868")
+          + "\nCONFIG_CSI_WIFI_PASSWORD="
+          + kconfig_string(password)
+          + "\n"
+      )
+      PY
+
+  - name: Build headless ESP32-S3 firmware
+    run: |
+      docker run --rm \
+        -v "$GITHUB_WORKSPACE/firmware/esp32-csi-node:/project" \
+        -w /project \
+        espressif/idf:v5.4 \
+        bash -lc "rm -rf build sdkconfig &&
+        idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.devkitc;sdkconfig.defaults.wifi' set-target esp32s3 &&
+        idf.py -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.devkitc;sdkconfig.defaults.wifi' build"
+
+  - name: Verify build outputs
+    run: |
+      test -s firmware/esp32-csi-node/build/esp32-csi-node.bin
+      test -s firmware/esp32-csi-node/build/bootloader/bootloader.bin
+      test -s firmware/esp32-csi-node/build/partition_table/partition-table.bin
+      test -s firmware/esp32-csi-node/build/ota_data_initial.bin
+
+  - name: Upload firmware artifacts
+    uses: actions/upload-artifact@v4
+    with:
+      name: ruview-esp32s3-devkitc-wifi
+      path: |
+        firmware/esp32-csi-node/build/esp32-csi-node.bin
+        firmware/esp32-csi-node/build/bootloader/bootloader.bin
+        firmware/esp32-csi-node/build/partition_table/partition-table.bin
+        firmware/esp32-csi-node/build/ota_data_initial.bin
+        firmware/esp32-csi-node/sdkconfig
+      if-no-files-found: error
+      retention-days: 7
